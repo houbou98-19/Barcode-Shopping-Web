@@ -31,5 +31,5 @@ jobs:
           port: ${{ secrets.VM_PORT }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.FRONTEND_SSH_KEY }}
-          source: "dist/*"
+          source: "dist/**"
           target: "/var/www/barcode-frontend"
