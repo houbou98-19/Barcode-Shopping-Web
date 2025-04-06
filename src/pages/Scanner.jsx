@@ -4,70 +4,95 @@ import { Html5Qrcode } from 'html5-qrcode'
 export default function Scanner() {
   const scannerRef = useRef(null)
   const html5QrCodeRef = useRef(null)
-  const currentCameraIndex = useRef(0)
   const camerasRef = useRef([])
+  const currentCameraIndex = useRef(0)
 
   const [lastScanned, setLastScanned] = useState(null)
   const [isTorchOn, setIsTorchOn] = useState(false)
 
-  const scannerId = "fullscreen-scanner"
+  const scannerId = 'fullscreen-scanner'
 
-  const startCamera = (cameraId) => {
-    const html5QrCode = html5QrCodeRef.current
-    html5QrCode
+  const waitForElementAndStart = (cameraId, retry = 0) => {
+    const element = document.getElementById(scannerId)
+
+    if (!element) {
+      if (retry > 10) {
+        console.error("Scanner DOM element still not available after retries.")
+        return
+      }
+
+      setTimeout(() => waitForElementAndStart(cameraId, retry + 1), 100)
+      return
+    }
+
+    html5QrCodeRef.current
       .start(
         cameraId,
         {
-          fps: 10,
-          rememberLastUsedCamera: true,
+          fps: 15,
+          videoConstraints: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
         },
         (decodedText) => {
-          setLastScanned(decodedText)
+          if (decodedText !== lastScanned) {
+            setLastScanned(decodedText)
+          }
         },
-        (errorMessage) => {
-          // console.warn("Scan error", errorMessage)
-        }
+        () => {}
       )
-      .catch((err) => console.error("Failed to start camera:", err))
+      .catch((err) => console.error('Start error:', err))
   }
 
-  const stopCamera = () => {
-    return html5QrCodeRef.current?.stop().then(() => {
-      return html5QrCodeRef.current?.clear()
-    })
+  const stopCamera = async () => {
+    const scanner = html5QrCodeRef.current
+    if (scanner && scanner._isScanning) {
+      try {
+        await scanner.stop()
+        await scanner.clear()
+      } catch (err) {
+        console.warn("Stop camera failed:", err)
+      }
+    }
   }
 
   const switchCamera = async () => {
     await stopCamera()
     currentCameraIndex.current =
       (currentCameraIndex.current + 1) % camerasRef.current.length
-    const newCamera = camerasRef.current[currentCameraIndex.current]
-    startCamera(newCamera.id)
+    const nextCamera = camerasRef.current[currentCameraIndex.current]
+    waitForElementAndStart(nextCamera.id)
   }
 
   const toggleTorch = () => {
-    const html5QrCode = html5QrCodeRef.current
-    html5QrCode
+    html5QrCodeRef.current
       .applyVideoConstraints({
         advanced: [{ torch: !isTorchOn }],
       })
       .then(() => setIsTorchOn((prev) => !prev))
-      .catch((err) => console.warn("Torch toggle not supported:", err))
+      .catch((err) => console.warn('Torch toggle not supported:', err))
   }
 
   useEffect(() => {
     const html5QrCode = new Html5Qrcode(scannerId)
     html5QrCodeRef.current = html5QrCode
 
-    Html5Qrcode.getCameras().then((devices) => {
-      if (devices.length > 0) {
+    Html5Qrcode.getCameras()
+      .then((devices) => {
+        if (!devices.length) return
+
         camerasRef.current = devices
-        startCamera(devices[0].id)
-      }
-    })
+        const preferredCamera = devices[0]
+        currentCameraIndex.current = 0
+        waitForElementAndStart(preferredCamera.id)
+      })
+      .catch((err) => {
+        console.error('Camera access error:', err)
+      })
 
     return () => {
-      stopCamera().catch((err) => console.error("Cleanup error:", err))
+      stopCamera()
     }
   }, [])
 
@@ -81,7 +106,9 @@ export default function Scanner() {
         onClick={switchCamera}
         style={{
           width: '100%',
-          height: '60vh',
+          maxWidth: '700px',
+          aspectRatio: '16/9',
+          margin: '0 auto',
           borderRadius: '12px',
           overflow: 'hidden',
           boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
